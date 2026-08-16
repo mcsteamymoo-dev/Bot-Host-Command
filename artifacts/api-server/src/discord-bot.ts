@@ -58,12 +58,12 @@ function retryDelay(error: unknown): number {
 
 async function replyToTypeCommand(
   interaction: ChatInputCommandInteraction,
-  queuedCount: number,
+  messageCount: number,
+  alreadyRunning: boolean,
 ): Promise<void> {
-  const content =
-    queuedCount === 1
-      ? "Queued 1 message. It will be sent to the configured channel."
-      : `Queued ${queuedCount} messages. They will be sent every 5 seconds.`;
+  const content = alreadyRunning
+    ? "Typing is already running. Use /stop before starting it again."
+    : `Typing started with ${messageCount} message${messageCount === 1 ? "" : "s"}. It will repeat every 5 seconds. Use /stop to stop it.`;
 
   if (interaction.replied || interaction.deferred) {
     await interaction.followUp({ content, ephemeral: true });
@@ -77,8 +77,8 @@ export async function startDiscordBot(): Promise<void> {
   const channelId = requiredEnvironment("DISCORD_CHANNEL_ID");
   const guildId = process.env["DISCORD_GUILD_ID"]?.trim();
   const intervalMs = configuredInterval();
-  const queue: string[] = [];
-  let workerPromise: Promise<void> | undefined;
+  let typingPromise: Promise<void> | undefined;
+  let stopRequested = false;
 
   const client = new Client({
     intents: [GatewayIntentBits.Guilds],
@@ -86,62 +86,90 @@ export async function startDiscordBot(): Promise<void> {
 
   const typeCommand = new SlashCommandBuilder()
     .setName("type")
-    .setDescription("Queue a message for the bot to send")
+    .setDescription("Start sending a message every 5 seconds")
     .addStringOption((option) =>
       option
         .setName("message")
-        .setDescription("The message to send")
+        .setDescription("The message to repeat (defaults to the sample sequence)")
         .setMaxLength(2_000)
         .setRequired(false),
     );
 
-  const sendQueuedMessages = async (): Promise<void> => {
-    const channel = await client.channels.fetch(channelId);
+  const stopCommand = new SlashCommandBuilder()
+    .setName("stop")
+    .setDescription("Stop the repeating messages");
 
-    if (!channel?.isTextBased() || !("send" in channel)) {
-      throw new Error(
-        `Discord channel ${channelId} was not found or is not a sendable text channel.`,
-      );
+  const startTyping = (messages: string[]): boolean => {
+    if (typingPromise) {
+      return false;
     }
 
-    while (queue.length > 0) {
-      const message = queue.shift();
-
-      if (!message) {
-        continue;
-      }
-
+    stopRequested = false;
+    typingPromise = (async () => {
       try {
-        await channel.send(message);
-        logger.info({ channelId, queueLength: queue.length }, "Discord message sent");
-      } catch (error) {
-        queue.unshift(message);
-        logger.error(
-          { err: error, channelId },
-          "Discord message failed; retrying after a delay",
-        );
-        await sleep(retryDelay(error));
-        continue;
-      }
+        const channel = await client.channels.fetch(channelId);
 
-      if (queue.length > 0) {
-        await sleep(intervalMs);
+        if (!channel?.isTextBased() || !("send" in channel)) {
+          throw new Error(
+            `Discord channel ${channelId} was not found or is not a sendable text channel.`,
+          );
+        }
+
+        let messageIndex = 0;
+
+        while (!stopRequested) {
+          const message = messages[messageIndex] ?? messages[0];
+
+          try {
+            await channel.send(message);
+            logger.info({ channelId }, "Discord repeating message sent");
+          } catch (error) {
+            const status =
+              typeof error === "object" &&
+              error !== null &&
+              "status" in error &&
+              typeof error.status === "number"
+                ? error.status
+                : undefined;
+
+            if (status === 403 || status === 404) {
+              logger.error(
+                { err: error, channelId },
+                "Discord typing stopped because the channel is unavailable or forbidden",
+              );
+              return;
+            }
+
+            logger.error(
+              { err: error, channelId },
+              "Discord repeating message failed; retrying after a delay",
+            );
+            await sleep(retryDelay(error));
+            continue;
+          }
+
+          messageIndex = (messageIndex + 1) % messages.length;
+          await sleep(intervalMs);
+        }
+      } catch (error) {
+        logger.error({ err: error, channelId }, "Discord typing stopped unexpectedly");
+      } finally {
+        typingPromise = undefined;
+        stopRequested = false;
+        logger.info({ channelId }, "Discord repeating messages stopped");
       }
-    }
+    })();
+
+    return true;
   };
 
-  const queueMessages = (messages: string[]): void => {
-    queue.push(...messages);
-
-    if (!workerPromise) {
-      workerPromise = sendQueuedMessages().finally(() => {
-        workerPromise = undefined;
-
-        if (queue.length > 0) {
-          queueMessages([]);
-        }
-      });
+  const stopTyping = (): boolean => {
+    if (!typingPromise) {
+      return false;
     }
+
+    stopRequested = true;
+    return true;
   };
 
   const registerCommands = async (): Promise<void> => {
@@ -154,7 +182,9 @@ export async function startDiscordBot(): Promise<void> {
       ? Routes.applicationGuildCommands(client.user.id, guildId)
       : Routes.applicationCommands(client.user.id);
 
-    await rest.put(route, { body: [typeCommand.toJSON()] });
+    await rest.put(route, {
+      body: [typeCommand.toJSON(), stopCommand.toJSON()],
+    });
 
     logger.info(
       { registrationScope: guildId ? "guild" : "global" },
@@ -173,15 +203,29 @@ export async function startDiscordBot(): Promise<void> {
   });
 
   client.on(Events.InteractionCreate, async (interaction) => {
-    if (!interaction.isChatInputCommand() || interaction.commandName !== "type") {
+    if (!interaction.isChatInputCommand()) {
       return;
     }
 
-    const requestedMessage = interaction.options.getString("message");
-    const messages = requestedMessage ? [requestedMessage] : DEFAULT_TYPE_MESSAGES;
+    if (interaction.commandName === "type") {
+      const requestedMessage = interaction.options.getString("message");
+      const messages = requestedMessage
+        ? [requestedMessage]
+        : DEFAULT_TYPE_MESSAGES;
+      const alreadyRunning = !startTyping(messages);
 
-    queueMessages(messages);
-    await replyToTypeCommand(interaction, messages.length);
+      await replyToTypeCommand(interaction, messages.length, alreadyRunning);
+      return;
+    }
+
+    if (interaction.commandName === "stop") {
+      const wasRunning = stopTyping();
+      const content = wasRunning
+        ? "Typing stopped. No more repeating messages will be sent."
+        : "Typing is not currently running.";
+
+      await interaction.reply({ content, ephemeral: true });
+    }
   });
 
   await client.login(token);
