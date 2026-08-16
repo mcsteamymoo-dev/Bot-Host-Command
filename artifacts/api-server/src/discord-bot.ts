@@ -2,6 +2,7 @@ import {
   Client,
   GatewayIntentBits,
   Events,
+  ActivityType,
   REST,
   Routes,
   SlashCommandBuilder,
@@ -212,6 +213,16 @@ export async function startDiscordBot(): Promise<void> {
   };
 
   client.once(Events.ClientReady, async (readyClient) => {
+    readyClient.user.setPresence({
+      activities: [
+        {
+          name: "currently esexing @cfq",
+          type: ActivityType.Playing,
+        },
+      ],
+      status: "online",
+    });
+
     logger.info({ user: readyClient.user.tag }, "Discord bot logged in");
 
     try {
