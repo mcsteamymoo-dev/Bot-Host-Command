@@ -1,4 +1,5 @@
 import app from "./app";
+import { startDiscordBot } from "./discord-bot";
 import { logger } from "./lib/logger";
 
 const rawPort = process.env["PORT"];
@@ -14,6 +15,11 @@ const port = Number(rawPort);
 if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
+
+void startDiscordBot().catch((error: unknown) => {
+  logger.error({ err: error }, "Discord bot failed to start");
+  process.exitCode = 1;
+});
 
 app.listen(port, (err) => {
   if (err) {
