@@ -11,7 +11,7 @@ An always-on Discord bot that registers a `/type` slash command and sends queued
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
 - Required env: `DATABASE_URL` — Postgres connection string
 - Required secret: `DISCORD_BOT_TOKEN`
-- Required shared variables: `DISCORD_CHANNEL_ID`, `DISCORD_GUILD_ID`
+- Required shared variable: `DISCORD_CHANNEL_ID`
 
 ## Stack
 
@@ -40,7 +40,7 @@ An always-on Discord bot that registers a `/type` slash command and sends queued
 - `/stop` stops the active repeating sender.
 - `/single message:<text> channel:<channel>` sends one message to the selected channel.
 - `/dm user:<user> message:<text>` sends one direct message to the selected user.
-- Slash commands register to the configured guild when `DISCORD_GUILD_ID` is set, otherwise globally.
+- Slash commands register globally so they can be used in every server where the bot is installed.
 
 ## User preferences
 
