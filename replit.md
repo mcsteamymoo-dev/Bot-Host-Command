@@ -1,6 +1,6 @@
-# [Project name]
+# Discord Type Bot
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+An always-on Discord bot that registers a `/type` slash command and sends queued messages to a configured channel at a controlled pace.
 
 ## Run & Operate
 
@@ -10,6 +10,8 @@ _Replace the heading above with the project's name, and this line with one sente
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
 - Required env: `DATABASE_URL` — Postgres connection string
+- Required secret: `DISCORD_BOT_TOKEN`
+- Required shared variables: `DISCORD_CHANNEL_ID`, `DISCORD_GUILD_ID`
 
 ## Stack
 
@@ -22,15 +24,20 @@ _Replace the heading above with the project's name, and this line with one sente
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- Discord bot runtime: `artifacts/api-server/src/discord-bot.ts`
+- HTTP health endpoint: `artifacts/api-server/src/routes/health.ts`
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- The Discord bot runs alongside the existing API server so one hosted service keeps both processes alive.
+- The `/type` command uses a FIFO queue and waits five seconds between successful sends.
+- The bot token is read only from Replit Secrets; destination configuration stays in environment variables.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+- `/type message:<text>` queues one message for delivery.
+- `/type` without a message queues the five sample messages from the provided script.
+- Slash commands register to the configured guild when `DISCORD_GUILD_ID` is set, otherwise globally.
 
 ## User preferences
 
