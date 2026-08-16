@@ -39,6 +39,7 @@ An always-on Discord bot that registers a `/type` slash command and sends queued
 - `/type` without a message repeatedly cycles through the five sample messages from the provided script.
 - `/stop` stops the active repeating sender.
 - `/single message:<text> channel:<channel>` sends one message to the selected channel.
+- `/dm user:<user> message:<text>` sends one direct message to the selected user.
 - Slash commands register to the configured guild when `DISCORD_GUILD_ID` is set, otherwise globally.
 
 ## User preferences
