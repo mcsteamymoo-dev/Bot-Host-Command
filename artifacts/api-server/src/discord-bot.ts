@@ -5,6 +5,7 @@ import {
   REST,
   Routes,
   SlashCommandBuilder,
+  ChannelType,
   type ChatInputCommandInteraction,
 } from "discord.js";
 import { logger } from "./lib/logger";
@@ -99,6 +100,24 @@ export async function startDiscordBot(): Promise<void> {
     .setName("stop")
     .setDescription("Stop the repeating messages");
 
+  const singleCommand = new SlashCommandBuilder()
+    .setName("single")
+    .setDescription("Send one message to a specified channel")
+    .addStringOption((option) =>
+      option
+        .setName("message")
+        .setDescription("The message to send")
+        .setMaxLength(2_000)
+        .setRequired(true),
+    )
+    .addChannelOption((option) =>
+      option
+        .setName("channel")
+        .setDescription("The channel where the message should be sent")
+        .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
+        .setRequired(true),
+    );
+
   const startTyping = (messages: string[]): boolean => {
     if (typingPromise) {
       return false;
@@ -183,7 +202,7 @@ export async function startDiscordBot(): Promise<void> {
       : Routes.applicationCommands(client.user.id);
 
     await rest.put(route, {
-      body: [typeCommand.toJSON(), stopCommand.toJSON()],
+      body: [typeCommand.toJSON(), stopCommand.toJSON(), singleCommand.toJSON()],
     });
 
     logger.info(
@@ -225,6 +244,40 @@ export async function startDiscordBot(): Promise<void> {
         : "Typing is not currently running.";
 
       await interaction.reply({ content, ephemeral: true });
+      return;
+    }
+
+    if (interaction.commandName === "single") {
+      const message = interaction.options.getString("message", true);
+      const channel = interaction.options.getChannel("channel", true);
+
+      if (!("send" in channel) || typeof channel.send !== "function") {
+        await interaction.reply({
+          content: "That channel cannot receive messages.",
+          ephemeral: true,
+        });
+        return;
+      }
+
+      try {
+        await channel.send(message);
+        await interaction.reply({
+          content: `Message sent to <#${channel.id}>.`,
+          ephemeral: true,
+        });
+        logger.info({ channelId: channel.id }, "Discord single message sent");
+      } catch (error) {
+        logger.error(
+          { err: error, channelId: channel.id },
+          "Discord single message failed",
+        );
+
+        await interaction.reply({
+          content:
+            "I couldn't send that message. Check that I can view and send messages in the selected channel.",
+          ephemeral: true,
+        });
+      }
     }
   });
 
