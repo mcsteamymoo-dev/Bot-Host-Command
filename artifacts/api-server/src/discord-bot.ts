@@ -62,10 +62,11 @@ async function replyToTypeCommand(
   interaction: ChatInputCommandInteraction,
   messageCount: number,
   alreadyRunning: boolean,
+  channelId: string,
 ): Promise<void> {
   const content = alreadyRunning
     ? "Typing is already running. Use /stop before starting it again."
-    : `Typing started with ${messageCount} message${messageCount === 1 ? "" : "s"}. It will repeat every 5 seconds. Use /stop to stop it.`;
+    : `Typing started in <#${channelId}> with ${messageCount} message${messageCount === 1 ? "" : "s"}. It will repeat every 5 seconds. Use /stop to stop it.`;
 
   if (interaction.replied || interaction.deferred) {
     await interaction.followUp({ content, ephemeral: true });
@@ -76,7 +77,6 @@ async function replyToTypeCommand(
 
 export async function startDiscordBot(): Promise<void> {
   const token = requiredEnvironment("DISCORD_BOT_TOKEN");
-  const channelId = requiredEnvironment("DISCORD_CHANNEL_ID");
   const intervalMs = configuredInterval();
   let typingPromise: Promise<void> | undefined;
   let stopRequested = false;
@@ -88,6 +88,13 @@ export async function startDiscordBot(): Promise<void> {
   const typeCommand = new SlashCommandBuilder()
     .setName("type")
     .setDescription("Start sending a message every 5 seconds")
+    .addChannelOption((option) =>
+      option
+        .setName("channel")
+        .setDescription("The channel where messages should be sent")
+        .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
+        .setRequired(true),
+    )
     .addStringOption((option) =>
       option
         .setName("message")
@@ -135,7 +142,7 @@ export async function startDiscordBot(): Promise<void> {
         .setRequired(true),
     );
 
-  const startTyping = (messages: string[]): boolean => {
+  const startTyping = (messages: string[], targetChannelId: string): boolean => {
     if (typingPromise) {
       return false;
     }
@@ -143,11 +150,11 @@ export async function startDiscordBot(): Promise<void> {
     stopRequested = false;
     typingPromise = (async () => {
       try {
-        const channel = await client.channels.fetch(channelId);
+        const channel = await client.channels.fetch(targetChannelId);
 
         if (!channel?.isTextBased() || !("send" in channel)) {
           throw new Error(
-            `Discord channel ${channelId} was not found or is not a sendable text channel.`,
+            `Discord channel ${targetChannelId} was not found or is not a sendable text channel.`,
           );
         }
 
@@ -158,7 +165,7 @@ export async function startDiscordBot(): Promise<void> {
 
           try {
             await channel.send(message);
-            logger.info({ channelId }, "Discord repeating message sent");
+            logger.info({ channelId: targetChannelId }, "Discord repeating message sent");
           } catch (error) {
             const status =
               typeof error === "object" &&
@@ -170,14 +177,14 @@ export async function startDiscordBot(): Promise<void> {
 
             if (status === 403 || status === 404) {
               logger.error(
-                { err: error, channelId },
+                { err: error, channelId: targetChannelId },
                 "Discord typing stopped because the channel is unavailable or forbidden",
               );
               return;
             }
 
             logger.error(
-              { err: error, channelId },
+              { err: error, channelId: targetChannelId },
               "Discord repeating message failed; retrying after a delay",
             );
             await sleep(retryDelay(error));
@@ -188,11 +195,17 @@ export async function startDiscordBot(): Promise<void> {
           await sleep(intervalMs);
         }
       } catch (error) {
-        logger.error({ err: error, channelId }, "Discord typing stopped unexpectedly");
+        logger.error(
+          { err: error, channelId: targetChannelId },
+          "Discord typing stopped unexpectedly",
+        );
       } finally {
         typingPromise = undefined;
         stopRequested = false;
-        logger.info({ channelId }, "Discord repeating messages stopped");
+        logger.info(
+          { channelId: targetChannelId },
+          "Discord repeating messages stopped",
+        );
       }
     })();
 
@@ -258,12 +271,27 @@ export async function startDiscordBot(): Promise<void> {
 
     if (interaction.commandName === "type") {
       const requestedMessage = interaction.options.getString("message");
+      const targetChannel = interaction.options.getChannel("channel", true);
       const messages = requestedMessage
         ? [requestedMessage]
         : DEFAULT_TYPE_MESSAGES;
-      const alreadyRunning = !startTyping(messages);
 
-      await replyToTypeCommand(interaction, messages.length, alreadyRunning);
+      if (!("send" in targetChannel) || typeof targetChannel.send !== "function") {
+        await interaction.reply({
+          content: "That channel cannot receive automated messages.",
+          ephemeral: true,
+        });
+        return;
+      }
+
+      const alreadyRunning = !startTyping(messages, targetChannel.id);
+
+      await replyToTypeCommand(
+        interaction,
+        messages.length,
+        alreadyRunning,
+        targetChannel.id,
+      );
       return;
     }
 
