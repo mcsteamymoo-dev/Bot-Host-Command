@@ -11,7 +11,6 @@ An always-on Discord bot that registers a `/type` slash command and sends queued
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
 - Required env: `DATABASE_URL` — Postgres connection string
 - Required secret: `DISCORD_BOT_TOKEN`
-- Required shared variable: `DISCORD_CHANNEL_ID`
 
 ## Stack
 
@@ -30,13 +29,13 @@ An always-on Discord bot that registers a `/type` slash command and sends queued
 ## Architecture decisions
 
 - The Discord bot runs alongside the existing API server so one hosted service keeps both processes alive.
-- The `/type` command uses a FIFO queue and waits five seconds between successful sends.
-- The bot token is read only from Replit Secrets; destination configuration stays in environment variables.
+- The `/type` command repeats messages every five seconds in the channel selected for that session.
+- The bot token is read only from Replit Secrets; channel targets are selected through slash-command options.
 
 ## Product
 
-- `/type message:<text>` starts repeating one message every five seconds.
-- `/type` without a message repeatedly cycles through the five sample messages from the provided script.
+- `/type channel:<channel> message:<text>` starts repeating one message every five seconds in the selected channel.
+- `/type channel:<channel>` repeatedly cycles through the five sample messages from the provided script.
 - `/stop` stops the active repeating sender.
 - `/single message:<text> channel:<channel>` sends one message to the selected channel.
 - `/dm user:<user> message:<text>` sends one direct message to the selected user.
