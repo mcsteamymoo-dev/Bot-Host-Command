@@ -119,6 +119,23 @@ export async function startDiscordBot(): Promise<void> {
         .setRequired(true),
     );
 
+  const dmCommand = new SlashCommandBuilder()
+    .setName("dm")
+    .setDescription("Send one direct message to a user")
+    .addUserOption((option) =>
+      option
+        .setName("user")
+        .setDescription("The user who should receive the message")
+        .setRequired(true),
+    )
+    .addStringOption((option) =>
+      option
+        .setName("message")
+        .setDescription("The message to send")
+        .setMaxLength(2_000)
+        .setRequired(true),
+    );
+
   const startTyping = (messages: string[]): boolean => {
     if (typingPromise) {
       return false;
@@ -203,7 +220,12 @@ export async function startDiscordBot(): Promise<void> {
       : Routes.applicationCommands(client.user.id);
 
     await rest.put(route, {
-      body: [typeCommand.toJSON(), stopCommand.toJSON(), singleCommand.toJSON()],
+      body: [
+        typeCommand.toJSON(),
+        stopCommand.toJSON(),
+        singleCommand.toJSON(),
+        dmCommand.toJSON(),
+      ],
     });
 
     logger.info(
@@ -286,6 +308,32 @@ export async function startDiscordBot(): Promise<void> {
         await interaction.reply({
           content:
             "I couldn't send that message. Check that I can view and send messages in the selected channel.",
+          ephemeral: true,
+        });
+      }
+      return;
+    }
+
+    if (interaction.commandName === "dm") {
+      const recipient = interaction.options.getUser("user", true);
+      const message = interaction.options.getString("message", true);
+
+      try {
+        await recipient.send(message);
+        await interaction.reply({
+          content: `Direct message sent to ${recipient}.`,
+          ephemeral: true,
+        });
+        logger.info({ recipientId: recipient.id }, "Discord direct message sent");
+      } catch (error) {
+        logger.error(
+          { err: error, recipientId: recipient.id },
+          "Discord direct message failed",
+        );
+
+        await interaction.reply({
+          content:
+            "I couldn't send that direct message. The user may have DMs disabled or may have blocked the bot.",
           ephemeral: true,
         });
       }
