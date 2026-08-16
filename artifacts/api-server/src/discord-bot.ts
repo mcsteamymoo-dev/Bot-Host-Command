@@ -77,7 +77,6 @@ async function replyToTypeCommand(
 export async function startDiscordBot(): Promise<void> {
   const token = requiredEnvironment("DISCORD_BOT_TOKEN");
   const channelId = requiredEnvironment("DISCORD_CHANNEL_ID");
-  const guildId = process.env["DISCORD_GUILD_ID"]?.trim();
   const intervalMs = configuredInterval();
   let typingPromise: Promise<void> | undefined;
   let stopRequested = false;
@@ -215,9 +214,7 @@ export async function startDiscordBot(): Promise<void> {
     }
 
     const rest = new REST({ version: "10" }).setToken(token);
-    const route = guildId
-      ? Routes.applicationGuildCommands(client.user.id, guildId)
-      : Routes.applicationCommands(client.user.id);
+    const route = Routes.applicationCommands(client.user.id);
 
     await rest.put(route, {
       body: [
@@ -229,7 +226,7 @@ export async function startDiscordBot(): Promise<void> {
     });
 
     logger.info(
-      { registrationScope: guildId ? "guild" : "global" },
+      { registrationScope: "global" },
       "Discord slash commands registered",
     );
   };
